@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "wanderly-dev",
+      "credentials": [{ "accessKey": "dev", "secretKey": "dev" }],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

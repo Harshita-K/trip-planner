@@ -1,0 +1,512 @@
+[
+ {
+  "name": "Agartala",
+  "region": "Tripura",
+  "lat": 23.8312,
+  "lng": 91.2824
+ },
+ {
+  "name": "Agra",
+  "region": "Uttar Pradesh",
+  "lat": 27.1753,
+  "lng": 78.0098
+ },
+ {
+  "name": "Ahmedabad",
+  "region": "Gujarat",
+  "lat": 23.0215,
+  "lng": 72.5801
+ },
+ {
+  "name": "Ajmer",
+  "region": "Rajasthan",
+  "lat": 26.4691,
+  "lng": 74.639
+ },
+ {
+  "name": "Alappuzha",
+  "region": "Kerala",
+  "lat": 9.5003,
+  "lng": 76.4123
+ },
+ {
+  "name": "Amritsar",
+  "region": "Punjab",
+  "lat": 31.6357,
+  "lng": 74.8787
+ },
+ {
+  "name": "Aurangabad",
+  "region": "Maharashtra",
+  "lat": 19.8773,
+  "lng": 75.339
+ },
+ {
+  "name": "Bengaluru",
+  "region": "Karnataka",
+  "lat": 12.9768,
+  "lng": 77.5901
+ },
+ {
+  "name": "Bhopal",
+  "region": "Madhya Pradesh",
+  "lat": 23.2585,
+  "lng": 77.402
+ },
+ {
+  "name": "Bhubaneswar",
+  "region": "Odisha",
+  "lat": 20.2603,
+  "lng": 85.8395
+ },
+ {
+  "name": "Bhuj",
+  "region": "Gujarat",
+  "lat": 23.2472,
+  "lng": 69.6683
+ },
+ {
+  "name": "Bikaner",
+  "region": "Rajasthan",
+  "lat": 28.0159,
+  "lng": 73.3171
+ },
+ {
+  "name": "Bodh Gaya",
+  "region": "Bihar",
+  "lat": 24.6817,
+  "lng": 84.9682
+ },
+ {
+  "name": "Chandigarh",
+  "region": "Chandigarh",
+  "lat": 30.7334,
+  "lng": 76.7797
+ },
+ {
+  "name": "Chennai",
+  "region": "Tamil Nadu",
+  "lat": 13.0801,
+  "lng": 80.2808
+ },
+ {
+  "name": "Coimbatore",
+  "region": "Tamil Nadu",
+  "lat": 11.0018,
+  "lng": 76.9628
+ },
+ {
+  "name": "Darjeeling",
+  "region": "West Bengal",
+  "lat": 27.0378,
+  "lng": 88.2632
+ },
+ {
+  "name": "Dehradun",
+  "region": "Uttarakhand",
+  "lat": 30.3256,
+  "lng": 78.0437
+ },
+ {
+  "name": "Delhi",
+  "region": "Delhi",
+  "lat": 28.6139,
+  "lng": 77.209
+ },
+ {
+  "name": "Dharamshala",
+  "region": "Himachal Pradesh",
+  "lat": 32.2143,
+  "lng": 76.3197
+ },
+ {
+  "name": "Dwarka",
+  "region": "Gujarat",
+  "lat": 22.2425,
+  "lng": 68.9671
+ },
+ {
+  "name": "Gangtok",
+  "region": "Sikkim",
+  "lat": 27.329,
+  "lng": 88.6123
+ },
+ {
+  "name": "Goa",
+  "region": "Goa",
+  "lat": 15.499,
+  "lng": 73.8282
+ },
+ {
+  "name": "Gokarna",
+  "region": "Karnataka",
+  "lat": 14.544,
+  "lng": 74.3184
+ },
+ {
+  "name": "Guwahati",
+  "region": "Assam",
+  "lat": 26.1806,
+  "lng": 91.7539
+ },
+ {
+  "name": "Gwalior",
+  "region": "Madhya Pradesh",
+  "lat": 26.2037,
+  "lng": 78.1574
+ },
+ {
+  "name": "Hampi",
+  "region": "Karnataka",
+  "lat": 15.3358,
+  "lng": 76.461
+ },
+ {
+  "name": "Haridwar",
+  "region": "Uttarakhand",
+  "lat": 29.9384,
+  "lng": 78.1453
+ },
+ {
+  "name": "Hyderabad",
+  "region": "Telangana",
+  "lat": 17.3606,
+  "lng": 78.4741
+ },
+ {
+  "name": "Imphal",
+  "region": "Manipur",
+  "lat": 24.7991,
+  "lng": 93.9364
+ },
+ {
+  "name": "Indore",
+  "region": "Madhya Pradesh",
+  "lat": 22.7204,
+  "lng": 75.8682
+ },
+ {
+  "name": "Jaipur",
+  "region": "Rajasthan",
+  "lat": 26.9155,
+  "lng": 75.819
+ },
+ {
+  "name": "Jaisalmer",
+  "region": "Rajasthan",
+  "lat": 27.0264,
+  "lng": 70.7775
+ },
+ {
+  "name": "Jodhpur",
+  "region": "Rajasthan",
+  "lat": 26.2968,
+  "lng": 73.0351
+ },
+ {
+  "name": "Kanyakumari",
+  "region": "Tamil Nadu",
+  "lat": 8.0793,
+  "lng": 77.5499
+ },
+ {
+  "name": "Kasauli",
+  "region": "Himachal Pradesh",
+  "lat": 30.8999,
+  "lng": 76.962
+ },
+ {
+  "name": "Khajuraho",
+  "region": "Madhya Pradesh",
+  "lat": 24.8515,
+  "lng": 79.926
+ },
+ {
+  "name": "Kochi",
+  "region": "Kerala",
+  "lat": 9.9679,
+  "lng": 76.2444
+ },
+ {
+  "name": "Kodaikanal",
+  "region": "Tamil Nadu",
+  "lat": 10.2337,
+  "lng": 77.492
+ },
+ {
+  "name": "Kohima",
+  "region": "Nagaland",
+  "lat": 25.6619,
+  "lng": 94.1019
+ },
+ {
+  "name": "Kolkata",
+  "region": "West Bengal",
+  "lat": 22.5726,
+  "lng": 88.3639
+ },
+ {
+  "name": "Kovalam",
+  "region": "Kerala",
+  "lat": 8.3903,
+  "lng": 76.9785
+ },
+ {
+  "name": "Leh",
+  "region": "Ladakh",
+  "lat": 34.1642,
+  "lng": 77.5848
+ },
+ {
+  "name": "Lonavala",
+  "region": "Maharashtra",
+  "lat": 18.7549,
+  "lng": 73.4017
+ },
+ {
+  "name": "Lucknow",
+  "region": "Uttar Pradesh",
+  "lat": 26.8381,
+  "lng": 80.9346
+ },
+ {
+  "name": "Madikeri",
+  "region": "Karnataka",
+  "lat": 12.4215,
+  "lng": 75.7388
+ },
+ {
+  "name": "Madurai",
+  "region": "Tamil Nadu",
+  "lat": 9.9261,
+  "lng": 78.1141
+ },
+ {
+  "name": "Mahabaleshwar",
+  "region": "Maharashtra",
+  "lat": 17.9243,
+  "lng": 73.6576
+ },
+ {
+  "name": "Manali",
+  "region": "Himachal Pradesh",
+  "lat": 32.2455,
+  "lng": 77.1873
+ },
+ {
+  "name": "Mangaluru",
+  "region": "Karnataka",
+  "lat": 12.8698,
+  "lng": 74.843
+ },
+ {
+  "name": "Margao",
+  "region": "Goa",
+  "lat": 15.2729,
+  "lng": 73.9583
+ },
+ {
+  "name": "Mount Abu",
+  "region": "Rajasthan",
+  "lat": 24.5924,
+  "lng": 72.7082
+ },
+ {
+  "name": "Mumbai",
+  "region": "Maharashtra",
+  "lat": 19.055,
+  "lng": 72.8692
+ },
+ {
+  "name": "Munnar",
+  "region": "Kerala",
+  "lat": 10.087,
+  "lng": 77.0601
+ },
+ {
+  "name": "Mussoorie",
+  "region": "Uttarakhand",
+  "lat": 30.4569,
+  "lng": 78.0783
+ },
+ {
+  "name": "Mysuru",
+  "region": "Karnataka",
+  "lat": 12.3052,
+  "lng": 76.6554
+ },
+ {
+  "name": "Nagpur",
+  "region": "Maharashtra",
+  "lat": 21.1498,
+  "lng": 79.0821
+ },
+ {
+  "name": "Nainital",
+  "region": "Uttarakhand",
+  "lat": 29.295,
+  "lng": 79.4163
+ },
+ {
+  "name": "Nashik",
+  "region": "Maharashtra",
+  "lat": 20.0112,
+  "lng": 73.7902
+ },
+ {
+  "name": "Ooty",
+  "region": "Tamil Nadu",
+  "lat": 11.4127,
+  "lng": 76.7031
+ },
+ {
+  "name": "Patna",
+  "region": "Bihar",
+  "lat": 25.6093,
+  "lng": 85.1235
+ },
+ {
+  "name": "Port Blair",
+  "region": "Andaman and Nicobar Islands",
+  "lat": 11.6645,
+  "lng": 92.739
+ },
+ {
+  "name": "Prayagraj",
+  "region": "Uttar Pradesh",
+  "lat": 25.4381,
+  "lng": 81.8338
+ },
+ {
+  "name": "Puducherry",
+  "region": "Puducherry",
+  "lat": 10.9156,
+  "lng": 79.8069
+ },
+ {
+  "name": "Pune",
+  "region": "Maharashtra",
+  "lat": 18.5214,
+  "lng": 73.8545
+ },
+ {
+  "name": "Puri",
+  "region": "Odisha",
+  "lat": 19.8076,
+  "lng": 85.8253
+ },
+ {
+  "name": "Pushkar",
+  "region": "Rajasthan",
+  "lat": 26.4876,
+  "lng": 74.5578
+ },
+ {
+  "name": "Rameswaram",
+  "region": "Tamil Nadu",
+  "lat": 9.2845,
+  "lng": 79.3126
+ },
+ {
+  "name": "Ranchi",
+  "region": "Jharkhand",
+  "lat": 23.3701,
+  "lng": 85.325
+ },
+ {
+  "name": "Rishikesh",
+  "region": "Uttarakhand",
+  "lat": 30.1087,
+  "lng": 78.2916
+ },
+ {
+  "name": "Shillong",
+  "region": "Meghalaya",
+  "lat": 25.576,
+  "lng": 91.8828
+ },
+ {
+  "name": "Shimla",
+  "region": "Himachal Pradesh",
+  "lat": 31.104,
+  "lng": 77.1708
+ },
+ {
+  "name": "Somnath",
+  "region": "Gujarat",
+  "lat": 20.8907,
+  "lng": 70.4025
+ },
+ {
+  "name": "Srinagar",
+  "region": "Jammu and Kashmir",
+  "lat": 34.0747,
+  "lng": 74.8204
+ },
+ {
+  "name": "Surat",
+  "region": "Gujarat",
+  "lat": 21.2095,
+  "lng": 72.8317
+ },
+ {
+  "name": "Thanjavur",
+  "region": "Tamil Nadu",
+  "lat": 10.659,
+  "lng": 79.2014
+ },
+ {
+  "name": "Thiruvananthapuram",
+  "region": "Kerala",
+  "lat": 8.4882,
+  "lng": 76.9476
+ },
+ {
+  "name": "Tirupati",
+  "region": "Andhra Pradesh",
+  "lat": 13.6316,
+  "lng": 79.4232
+ },
+ {
+  "name": "Udaipur",
+  "region": "Rajasthan",
+  "lat": 24.5787,
+  "lng": 73.6863
+ },
+ {
+  "name": "Ujjain",
+  "region": "Madhya Pradesh",
+  "lat": 23.1885,
+  "lng": 75.7717
+ },
+ {
+  "name": "Vadodara",
+  "region": "Gujarat",
+  "lat": 22.2973,
+  "lng": 73.1943
+ },
+ {
+  "name": "Varanasi",
+  "region": "Uttar Pradesh",
+  "lat": 25.3356,
+  "lng": 83.0076
+ },
+ {
+  "name": "Varkala",
+  "region": "Kerala",
+  "lat": 8.734,
+  "lng": 76.7253
+ },
+ {
+  "name": "Vijayawada",
+  "region": "Andhra Pradesh",
+  "lat": 16.5115,
+  "lng": 80.616
+ },
+ {
+  "name": "Visakhapatnam",
+  "region": "Andhra Pradesh",
+  "lat": 17.6936,
+  "lng": 83.2921
+ }
+]

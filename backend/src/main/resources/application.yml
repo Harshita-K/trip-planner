@@ -1,0 +1,110 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: wanderly
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/wanderly}
+    username: ${DB_USER:wanderly}
+    password: ${DB_PASSWORD:wanderly}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none   # Flyway owns the schema
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 500ms
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+  mvc:
+    problemdetails:
+      enabled: true
+  mail:
+    # Local default is Mailpit from docker-compose (no auth). For real inboxes set e.g. Gmail:
+    # MAIL_HOST=smtp.gmail.com MAIL_PORT=587 MAIL_USERNAME=you@gmail.com MAIL_PASSWORD=<app password>
+    # MAIL_SMTP_AUTH=true MAIL_STARTTLS=true
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail.smtp.auth: ${MAIL_SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${MAIL_STARTTLS:false}
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+
+management:
+  health:
+    mail:
+      enabled: false   # a mail outage shouldn't mark the whole API unhealthy
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+wanderly:
+  # Comma-separated admin emails: they see /api/analytics and can edit or remove any listed event.
+  # Empty = no admins, and analytics is open to any logged-in user (local dev only).
+  admins: ${ADMINS:${ANALYTICS_ADMINS:}}
+  security:
+    # HS256 key, >= 32 bytes. Override via JWT_SECRET outside local dev (Secrets Manager in AWS).
+    jwt-secret: ${JWT_SECRET:local-dev-secret-change-me-please-32-bytes-min}
+    token-ttl: 12h
+    # HMAC key for verification codes stored in Redis (>= 32 bytes). Override via OTP_SECRET.
+    otp-secret: ${OTP_SECRET:local-dev-otp-secret-change-me-32-bytes}
+  kafka:
+    partitions: 3
+  places:
+    # Curated data (Bengaluru, Jaipur) is always used where it exists. Everywhere else uses live data:
+    # OpenStreetMap via Overpass (no key needed), or OpenTripMap if OPENTRIPMAP_API_KEY is set.
+    cache-ttl: 24h
+    live: ${PLACES_LIVE:true}
+    opentripmap:
+      api-key: ${OPENTRIPMAP_API_KEY:}
+      base-url: https://api.opentripmap.com/0.1/en
+    osm:
+      # Comma-separated; tried in order (public servers are often busy)
+      overpass-url: ${OVERPASS_URL:https://overpass-api.de/api/interpreter,https://overpass.private.coffee/api/interpreter,https://maps.mail.ru/osm/tools/overpass/api/interpreter}
+      photon-url: ${PHOTON_URL:https://photon.komoot.io}   # OSM-based geocoder for city search-as-you-type
+      wikipedia-url: ${WIKIPEDIA_API_URL:https://en.wikipedia.org/w/api.php}   # famous sights + page-view popularity
+      contact: ${OSM_CONTACT:}   # e.g. your email or site; added to the User-Agent as OSM policies request
+  analytics:
+    enabled: ${ANALYTICS_ENABLED:true}       # false = no lake sink (e.g. in tests)
+    lake:
+      endpoint: ${LAKE_ENDPOINT:http://localhost:8333}   # SeaweedFS locally; empty = real AWS S3
+      bucket: ${LAKE_BUCKET:wanderly-lake}
+      region: ${LAKE_REGION:us-east-1}
+      access-key: ${LAKE_ACCESS_KEY:dev}
+      secret-key: ${LAKE_SECRET_KEY:dev}
+  travel:
+    # Road distance/time (OpenStreetMap routing, no key). Public demo server: fine for dev; self-host in production.
+    # Empty = always estimate from straight-line distance.
+    osrm-url: ${OSRM_URL:https://router.project-osrm.org}
+  mail:
+    enabled: ${MAIL_ENABLED:true}             # false = log emails instead of sending
+    from: ${MAIL_FROM:Wanderly <no-reply@wanderly.local>}
+  notifications:
+    # Hourly: saved events starting in the next 24h; trips starting tomorrow (from 09:00 IST). Deduplicated by id.
+    reminder-cron: "0 0 * * * *"

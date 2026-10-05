@@ -1,0 +1,124 @@
+### Wanderly API walkthrough (VS Code REST Client / IntelliJ HTTP client)
+@base = http://localhost:8080
+
+### 1. Register: no token yet; a 6-digit code is emailed (open Mailpit at http://localhost:8025)
+POST {{base}}/api/auth/register
+Content-Type: application/json
+
+{ "email": "demo@example.com", "password": "correct-horse-battery", "name": "Demo" }
+
+### 2. Verify: paste the code from the email. Returns accessToken. Codes are single use and expire in 10 min.
+# @name verify
+POST {{base}}/api/auth/verify
+Content-Type: application/json
+
+{ "email": "demo@example.com", "code": "123456" }
+
+###
+@token = {{verify.response.body.accessToken}}
+
+### Resend a code (always 202, max one new code per minute)
+POST {{base}}/api/auth/resend-code
+Content-Type: application/json
+
+{ "email": "demo@example.com" }
+
+### Login
+POST {{base}}/api/auth/login
+Content-Type: application/json
+
+{ "email": "demo@example.com", "password": "correct-horse-battery" }
+
+### Forgot password: always 202; verified accounts get a 6-digit reset code by email
+POST {{base}}/api/auth/forgot-password
+Content-Type: application/json
+
+{ "email": "demo@example.com" }
+
+### Reset password: code + new password. Returns a new token; tokens issued before this stop working.
+POST {{base}}/api/auth/reset-password
+Content-Type: application/json
+
+{ "email": "demo@example.com", "code": "123456", "password": "a-brand-new-password" }
+
+### Set preferences (drives ranking, itinerary pace and interests)
+PUT {{base}}/api/users/me/preferences
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "interests": ["history", "museum", "food"], "budgetLevel": "mid", "travelPace": "balanced" }
+
+### F2 Search events (public)
+# @name events
+GET {{base}}/api/events?city=Bengaluru
+
+### Trip ideas (public): where and how long; the web app opens the planner with them
+GET {{base}}/api/trips
+
+### F3 Save an event to your plans -> publishes event.saved to Kafka (idempotent: saving twice is a no-op)
+PUT {{base}}/api/saved-events/{{events.response.body.items[0].id}}
+Authorization: Bearer {{token}}
+
+### My saved events
+GET {{base}}/api/saved-events
+Authorization: Bearer {{token}}
+
+### F7 Food + attractions near an event's venue (public; personalised with a token)
+GET {{base}}/api/events/{{events.response.body.items[0].id}}/nearby
+Authorization: Bearer {{token}}
+
+### F11 Inbox (written asynchronously by the Kafka notification consumer)
+GET {{base}}/api/notifications
+Authorization: Bearer {{token}}
+
+### Remove it from your plans -> publishes event.unsaved
+DELETE {{base}}/api/saved-events/{{events.response.body.items[0].id}}
+Authorization: Bearer {{token}}
+
+### List an event in a city with no events yet (venue is geocoded near the city; else the city centre)
+# @name listed
+POST {{base}}/api/events
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "title": "Sunset folk music", "category": "music", "venue": "Ambrai Ghat", "city": "Udaipur",
+  "lat": 24.5854, "lng": 73.7125, "startTime": "2026-10-20T12:30:00Z", "price": 0,
+  "description": "Folk music by the lake." }
+
+### Events I listed
+GET {{base}}/api/events/mine
+Authorization: Bearer {{token}}
+
+### Remove my listing (only whoever listed it, or an admin)
+DELETE {{base}}/api/events/{{listed.response.body.id}}
+Authorization: Bearer {{token}}
+
+### F5 Nearby tourist spots (public; personalised when a token is sent)
+GET {{base}}/api/places/nearby?lat=12.9716&lng=77.5946&radiusKm=5&category=museum,history
+Authorization: Bearer {{token}}
+
+### F6 Preview an itinerary without logging in (nothing saved)
+POST {{base}}/api/itineraries/preview
+Content-Type: application/json
+
+{ "destination": "Jaipur", "lat": 26.9124, "lng": 75.7873, "startDate": "2026-10-17", "endDate": "2026-10-18" }
+
+### F6 Generate and save a 3-day itinerary
+POST {{base}}/api/itineraries
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "destination": "Bengaluru",
+  "lat": 12.9716, "lng": 77.5946,
+  "startDate": "2026-10-10", "endDate": "2026-10-12",
+  "travelPace": "balanced"
+}
+
+### Saved itineraries
+GET {{base}}/api/itineraries
+Authorization: Bearer {{token}}
+
+### F10 Personalised feed
+GET {{base}}/api/recommendations/feed?city=Bengaluru
+Authorization: Bearer {{token}}
