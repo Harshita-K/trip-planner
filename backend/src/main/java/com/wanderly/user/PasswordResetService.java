@@ -1,6 +1,7 @@
 package com.wanderly.user;
 
 import com.wanderly.common.ApiException;
+import com.wanderly.messaging.CodeCipher;
 import com.wanderly.messaging.EmailJob;
 import com.wanderly.messaging.EventPublisher;
 import com.wanderly.messaging.Topics;
@@ -36,14 +37,16 @@ public class PasswordResetService {
     private final UserRepository users;
     private final PasswordEncoder passwordEncoder;
     private final TokenRevocation revocation;
+    private final CodeCipher cipher;
 
     public PasswordResetService(OtpStore otps, EventPublisher publisher, UserRepository users,
-                                PasswordEncoder passwordEncoder, TokenRevocation revocation) {
+                                PasswordEncoder passwordEncoder, TokenRevocation revocation, CodeCipher cipher) {
         this.otps = otps;
         this.publisher = publisher;
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.revocation = revocation;
+        this.cipher = cipher;
     }
 
     /** Silently does nothing for unknown or unverified emails, and within the resend cooldown. */
@@ -53,7 +56,7 @@ public class PasswordResetService {
             String otpId = UUID.randomUUID().toString();
             if (otps.issue(OtpStore.Purpose.RESET_PASSWORD, user.getEmail(), code, otpId)) {
                 publisher.publish(Topics.EMAILS, user.getEmail(),
-                        EmailJob.passwordResetCode(otpId, user.getEmail(), user.getName(), code));
+                        EmailJob.passwordResetCode(cipher, otpId, user.getEmail(), user.getName(), code));
             }
         });
     }

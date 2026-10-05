@@ -3,8 +3,10 @@ package com.wanderly.saved;
 import com.wanderly.catalog.Event;
 import com.wanderly.catalog.EventRepository;
 import com.wanderly.common.ApiException;
+import com.wanderly.messaging.ActivityEvent;
 import com.wanderly.messaging.SavedEventChange;
-import org.springframework.context.ApplicationEventPublisher;
+import com.wanderly.messaging.Topics;
+import com.wanderly.messaging.outbox.Outbox;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,8 +20,9 @@ import java.util.stream.Collectors;
 /**
  * Saving an event is the planner's version of "I'm going". It only touches Postgres; what happens
  * <em>because</em> of a save (inbox note with nearby picks, affinity, analytics, the day-before
- * reminder) hangs off a {@link SavedEventChange} that {@link SavedEventRelay} publishes after commit.
- * Both operations are idempotent, and only real changes produce a message.
+ * reminder) hangs off a {@link SavedEventChange} written to the transactional outbox in the same
+ * transaction (D56), so the save and its message can't disagree. Both operations are idempotent, and
+ * only real changes produce a message.
  */
 @Service
 public class SavedEventService {
@@ -29,12 +32,12 @@ public class SavedEventService {
 
     private final SavedEventRepository saves;
     private final EventRepository events;
-    private final ApplicationEventPublisher appEvents;
+    private final Outbox outbox;
 
-    public SavedEventService(SavedEventRepository saves, EventRepository events, ApplicationEventPublisher appEvents) {
+    public SavedEventService(SavedEventRepository saves, EventRepository events, Outbox outbox) {
         this.saves = saves;
         this.events = events;
-        this.appEvents = appEvents;
+        this.outbox = outbox;
     }
 
     @Transactional
@@ -44,7 +47,10 @@ public class SavedEventService {
             throw ApiException.badRequest("This event has already started");
         }
         if (saves.insertIfAbsent(userId, eventId) == 1) {
-            appEvents.publishEvent(change(SavedEventChange.SAVED, userId, event));
+            SavedEventChange change = change(SavedEventChange.SAVED, userId, event);
+            outbox.enqueue(Topics.SAVED_EVENTS, userId.toString(), change);
+            outbox.enqueue(Topics.USER_ACTIVITY, userId.toString(), ActivityEvent.of(userId, ActivityEvent.EVENT_SAVED,
+                    "event", eventId.toString(), event.getCategory(), event.getCity()));
         }
         return new Saved(saves.findByUserIdAndEventId(userId, eventId).orElseThrow(), event);
     }
@@ -52,7 +58,8 @@ public class SavedEventService {
     @Transactional
     public void unsave(UUID userId, UUID eventId) {
         if (saves.deleteByUserIdAndEventId(userId, eventId) == 1) {
-            events.findById(eventId).ifPresent(e -> appEvents.publishEvent(change(SavedEventChange.UNSAVED, userId, e)));
+            events.findById(eventId).ifPresent(e ->
+                    outbox.enqueue(Topics.SAVED_EVENTS, userId.toString(), change(SavedEventChange.UNSAVED, userId, e)));
         }
     }
 

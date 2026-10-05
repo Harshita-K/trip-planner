@@ -1,5 +1,8 @@
 server:
   port: 8080
+  # Trust X-Forwarded-For only from internal addresses (a local proxy, a private load balancer), so
+  # rate limits see the real client IP and clients can't spoof theirs (D58).
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:native}
 
 spring:
   application:
@@ -74,8 +77,18 @@ wanderly:
     token-ttl: 12h
     # HMAC key for verification codes stored in Redis (>= 32 bytes). Override via OTP_SECRET.
     otp-secret: ${OTP_SECRET:local-dev-otp-secret-change-me-32-bytes}
+    # The browser session is an httpOnly cookie (D59). Set COOKIE_SECURE=true anywhere served over HTTPS.
+    cookie-secure: ${COOKIE_SECURE:false}
   kafka:
     partitions: 3
+  outbox:
+    poll-interval: PT1S                       # safety-net pass; commits also nudge the relay immediately (D56)
+  rate-limit:                                 # per client IP, token buckets in Redis (D58)
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    login:   { capacity: 10, per: 5m }        # password guessing
+    signup:  { capacity: 5, per: 10m }        # register, resend code, forgot password (each sends an email)
+    code:    { capacity: 10, per: 5m }        # verify, reset password
+    planner: { capacity: 30, per: 5m }        # itinerary preview and generate
   places:
     # Curated data (Bengaluru, Jaipur) is always used where it exists. Everywhere else uses live data:
     # OpenStreetMap via Overpass (no key needed), or OpenTripMap if OPENTRIPMAP_API_KEY is set.

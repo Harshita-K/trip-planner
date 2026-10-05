@@ -64,6 +64,7 @@ This is a living record of **what was built, why it exists, and which choices we
   | `pwreset:{email}` / `pwreset:cooldown:{email}` | pending password-reset code and its resend throttle (D55) | 10 min / 60 s |
   | `auth:revoked-before:{userId}` | tokens issued before this epoch-ms are rejected (after a password reset, D55) | token TTL (12 h) |
   | `photon:venue:{lat},{lng}:{venue, city}` | geocoded venue for a listed event (D54) | 30 days |
+  | `ratelimit:{rule}:{ip}` | token bucket `{tokens, ts}` per client IP (D58) | until refilled |
   | `email:job:{jobId}` | worker idempotency state, `sending:{token}` → `sent` | 30 s lease / 24 h |
   | `osmhours:{type}/{id}` / `osmhours:wd:{Qid}` | OpenStreetMap opening_hours per OSM object or Wikidata id (`""` = none tagged) (D40, D45) | 7 days |
   | `photon:in:{query}` | Photon city suggestions (D43) | 30 days |
@@ -81,7 +82,8 @@ This is a living record of **what was built, why it exists, and which choices we
   | S3 data lake (SeaweedFS locally, AWS S3 in production) | Raw event history for analytics, `raw/{topic}/dt=…/hour=…/` |
   | DuckDB (embedded) | Holds no data: SQL engine over the lake, the local stand-in for Athena |
 
-- **Database migrations (Flyway):** `V1` schema, `V2` seed catalog, `V3` email-verified columns (plus a pending-codes table, since removed), `V4` drop that table because codes moved to Redis, `V5` bookings → `saved_events` (live event bookings carried over), drop seats and trip prices, add `events.created_by` (D51, D54).
+- **Database migrations (Flyway):** `V6` adds the transactional `outbox` table (D56).
+- **Earlier migrations:** `V1` schema, `V2` seed catalog, `V3` email-verified columns (plus a pending-codes table, since removed), `V4` drop that table because codes moved to Redis, `V5` bookings → `saved_events` (live event bookings carried over), drop seats and trip prices, add `events.created_by` (D51, D54).
 - **Local stack** (`docker-compose.yml`): Postgres 16, Redis 7, Kafka 3.8 in KRaft mode (no ZooKeeper), Kafka UI on :8081, and Mailpit (a local mail server with an inbox UI on :8025). There's an optional `app` profile that also runs the backend container.
 - **Data sources:**
 
@@ -102,10 +104,13 @@ This is a living record of **what was built, why it exists, and which choices we
   | Train, bus and flight fares and timetables | Simulated (formulas in `TravelPlanner`) | No (labelled "indicative") |
   | Hotels and guest houses | OpenStreetMap via Photon (no key) | Yes, cached 7 days |
   | Hotel prices | Simulated (formulas in `HotelPricing`) | No (labelled "indicative") |
-- **Tests (83, all passing):**
-  - **68 unit tests** (`mvn test`): the day scheduler (time-aware 2-opt untangles crossings, never makes a day worse or infeasible, closing times and weekly closures, eating before a visit that would run past the lunch window), the planner (late openers go later instead of causing waits, a day still fills when the top picks don't fit, lunch inside the window and between stops, a nearby open restaurant not repeated across days, waiting reported only when unavoidable, plus clustering, pace, weekly closures, determinism), the trip-reminder text, travel planner (modes, rail and airport rules, last-minute pricing, per-car pricing, determinism), hotel tiering and pricing, DuckDB analytics SQL over a local lake (de-duplication, monotonic funnel, net saves, empty lake), k-means, travel estimator, ranker, geo maths, the OSM opening_hours parser (12 cases), OpenTripMap mapping, Overpass places (categories, English names, notability, page views, outages), Wikipedia sights (filtering, classification, page-view ranking), the hours enricher (OSM id and Wikidata paths), and city search (Photon).
+- **Tests (91, all passing):**
+  - **73 unit tests** (`mvn test`): the code cipher (round trip, fresh nonce, bound to job and recipient, tamper and wrong-key rejection, no plaintext in the Kafka JSON), rate-limit routing, the day scheduler (time-aware 2-opt untangles crossings, never makes a day worse or infeasible, closing times and weekly closures, eating before a visit that would run past the lunch window), the planner (late openers go later instead of causing waits, a day still fills when the top picks don't fit, lunch inside the window and between stops, a nearby open restaurant not repeated across days, waiting reported only when unavoidable, plus clustering, pace, weekly closures, determinism), the trip-reminder text, travel planner (modes, rail and airport rules, last-minute pricing, per-car pricing, determinism), hotel tiering and pricing, DuckDB analytics SQL over a local lake (de-duplication, monotonic funnel, net saves, empty lake), k-means, travel estimator, ranker, geo maths, the OSM opening_hours parser (12 cases), OpenTripMap mapping, Overpass places (categories, English names, notability, page views, outages), Wikipedia sights (filtering, classification, page-view ranking), the hours enricher (OSM id and Wikidata paths), and city search (Photon).
   - **1 opt-in live test**, `LIVE_OSM=true mvn test -Dtest=OsmHoursClientLiveTest`, which calls the real Overpass API.
-  - **14 end-to-end tests** in `PlannerFlowIT` (`mvn verify`, real Postgres, Kafka and Redis via Testcontainers):
+  - **17 end-to-end tests** in `PlannerFlowIT` (`mvn verify`, real Postgres, Kafka and Redis via Testcontainers):
+    - login is rate limited per client IP (429 + Retry-After), other IPs unaffected
+    - the session is an httpOnly, SameSite=Lax cookie; writes need the CSRF header; logout and stale cookies are cleared
+    - the outbox relays committed messages and never rolled-back ones; enqueueing outside a transaction fails
     - saving fans out to an inbox-only note with nearby picks; saving and unsaving are idempotent; nearby is public
     - organisers list events in any city; only they can edit or remove them; seeded events are admin-only; validation; deleting removes saves
     - reminders for a saved event and a trip starting tomorrow, delivered once across hourly reruns
@@ -175,7 +180,7 @@ The plan is read and written as a whole and never queried by stop, so a document
 
 ### Events and Kafka
 
-**D9. Publish after commit (`@TransactionalEventListener(AFTER_COMMIT)`), not a transactional outbox (yet).**
+**D9. Publish after commit (`@TransactionalEventListener(AFTER_COMMIT)`), not a transactional outbox (yet).** *(Superseded by D56: the outbox is built.)*
 *Why:* consumers must never see a booking that rolled back, such as one where seat reservation failed. *Cost:* if the app crashes between commit and publish, that event is lost, because this is at-most-once publishing. *Upgrade path:* a transactional outbox table polled by a relay, or Debezium CDC. This is noted in `EventPublisher`.
 
 **D10. Payloads are JSON strings (`StringSerializer`), not Spring's `JsonSerializer` with type headers.**
@@ -259,7 +264,7 @@ Swagger is auto-generated from the controllers, so it never drifts from the API 
 **D31. A React + Vite single-page app, with no UI framework or router library.**
 *Why:* React matches design §4. Plain CSS with design tokens keeps the "Golden hour" theme fully custom: sand background, deep teal, terracotta actions, marigold highlights, a Fraunces serif for headings, and postcard-style event cards with date stamps. Hash routing (`#/plan`) keeps it to two runtime dependencies (react, react-dom). The Vite dev server proxies `/api` to :8080, so the backend needs no CORS config. *Cost:* no TypeScript, and only six pages, so this would be revisited if the app grows.
 
-**D32. Login is asked for at the moment of need, not up front.**
+**D32. Login is asked for at the moment of need, not up front.** *(The token now lives in an httpOnly cookie, not localStorage, D59.)*
 Browsing, Discover, trip packages and **planning** work logged out. Booking, saving a plan and the inbox open a login dialog that explains why ("Log in to complete your booking."). Sign-up goes straight to an interests screen, because interests drive every ranking. The JWT is kept in `localStorage`, and a 401 clears it and reopens the login dialog. *Cost:* `localStorage` tokens are readable by XSS. An httpOnly-cookie session or the Cognito hosted UI is the production path.
 
 **D33. Notification text is formatted for people:** times show in IST ("Mon, 12 Oct 2026, 8:00 pm IST") and amounts in rupees (₹1598). All seeded destinations are in India; per-user time zones are the general fix.
@@ -286,7 +291,7 @@ One `CityCombobox` is used on Explore, Discover and Plan, following the WAI-ARIA
 `SmtpEmailSender` (Spring `JavaMailSender`) now sends both verification codes and booking emails. In dev it points at Mailpit from docker-compose, so every email is visible at http://localhost:8025 without a real provider. For real inboxes, only env vars change: `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_SMTP_AUTH=true`, `MAIL_STARTTLS=true` and `MAIL_FROM`. That works with Gmail (an app password), Amazon SES SMTP, SendGrid, Resend and others. `MAIL_ENABLED=false` falls back to logging emails, codes included. The mail health check is disabled so a mail outage doesn't mark the API down. *Cost:* sign-up emails are sent synchronously in the request (bounded by 5 s SMTP timeouts). At scale they'd move onto the `notifications` topic like booking emails.
 
 
-**D38. Verification codes live in Redis and are emailed by an idempotent async worker.**
+**D38. Verification codes live in Redis and are emailed by an idempotent async worker.** *(Codes in Kafka messages are now encrypted, D57.)*
 This replaces the Postgres-stored, synchronously emailed codes of D36 and D37 (migration `V4` drops the table).
 
 | Requirement | How it's met | Where |
@@ -467,6 +472,37 @@ India has no public events API (BookMyShow and District have none), so the catal
 
 `POST /api/auth/reset-password` hashes the new password first (the slow part), then consumes the code atomically, saves the hash and returns a fresh token. **Other sessions end:** JWTs are stateless, so the reset writes `auth:revoked-before:{userId}` = now (epoch ms) to Redis for one token lifetime, and the JWT decoder rejects older tokens. Tokens now carry `iat_ms` because the standard `iat` is whole seconds, too coarse to separate the token from just before a reset from the one issued by it. The check fails open if Redis is down, like every other Redis use, bounded by the 12-hour token TTL.
 
+### Reliability and security hardening (2026-10-06)
+
+**D56. Transactional outbox for messages that describe a database change.**
+D9 published after commit, so a crash between the commit and the Kafka send lost the message (the save existed, but no inbox note, affinity or analytics). Now `Outbox.enqueue` writes the message to an `outbox` table **in the same transaction** as the change, and `OutboxRelay` sends it.
+- **Atomic:** the change and its message commit or roll back together, without distributed transactions. `enqueue` requires a transaction (`Propagation.MANDATORY`), so a misuse fails loudly.
+- **Fast path:** an after-commit hook nudges the relay, so the message usually leaves within milliseconds. A 1-second poll is the safety net for restarts and Kafka outages.
+- **At-least-once:** a row is marked published only after Kafka acknowledges it (`acks=all`); a crash in between sends it again, and every consumer already de-duplicates by event id.
+- **Order:** rows go out by id, one at a time, and a failure stops the batch, so a later message for a key never overtakes an earlier one.
+- **Several instances:** `SELECT … FOR UPDATE SKIP LOCKED` splits pending rows between relays without duplicates or waiting.
+- **Housekeeping:** published rows are deleted after 7 days; `attempts` and `last_error` show stuck messages.
+- **Scope:** saves, unsaves and the activity events of saves and saved itineraries. Searches and views stay fire-and-forget (nothing in the database to be consistent with), codes depend on Redis rather than Postgres, and reminders already re-queue hourly until delivered (D53).
+
+*Cost:* one extra insert per change and a polling query per second. CDC (Debezium reading the Postgres WAL) is the heavier alternative that removes the polling.
+
+**D57. One-time codes are encrypted inside Kafka messages.**
+Codes used to travel in plain text on `emails` (mitigated only by 1-hour retention). Now `CodeCipher` encrypts them with **AES-256-GCM**: a fresh 12-byte nonce per message, and the job id plus recipient as associated data, so a ciphertext can't be moved to another job or address. The key is derived from `OTP_SECRET` with HMAC-SHA256 under its own label, so there's nothing new to configure and it's independent of the key that hashes codes in Redis. The worker decrypts before taking its send lease; a bad ciphertext is an `IllegalArgumentException`, which is dead-lettered without retries.
+
+**D58. Per-IP rate limits as Redis token buckets.**
+Login, sign-up/resend/forgot (each sends an email), code entry (verify, reset) and the planner get per-client-IP buckets: 10 per 5 min, 5 per 10 min, 10 per 5 min and 30 per 5 min by default (`wanderly.rate-limit.*`). Over the limit: **429** with `Retry-After` and a problem-detail body (`code: RATE_LIMITED`).
+- **Algorithm:** a token bucket in one Lua script (refill by elapsed time, take or compute the wait), atomic like `OtpStore`, shared by all instances, timed by Redis `TIME` so app-server clocks don't matter. Bucket4j would do the same; the ~15-line script avoids a dependency and matches the existing pattern.
+- **Client IP:** `request.getRemoteAddr()`, with `server.forward-headers-strategy=native` so Tomcat takes `X-Forwarded-For` **only from internal addresses** (a local proxy or private load balancer); clients can't spoof theirs. The Vite dev proxy forwards it (`xfwd`).
+- **Fails open** if Redis is down, like every other Redis use.
+- **Testing lesson:** the first test saw no 429 because Apache HttpClient honours `Retry-After` and silently waited 30 s and retried. That test uses the JDK client.
+
+**D59. The browser session is an httpOnly cookie, with a custom-header CSRF guard.**
+D32's JWT in `localStorage` could be read by any script, so an XSS bug could steal a 12-hour token. Now login, verify and reset-password also set `wanderly_session`: **httpOnly**, `SameSite=Lax`, `Path=/api`, `Secure` when `COOKIE_SECURE=true`, expiring with the token. The web app never sees the token; on load it asks `/api/users/me` who it is.
+- **CSRF:** cookies are sent automatically, so on writes the cookie only counts when the request also has `X-Requested-With`. Another site can't add a custom header without a CORS preflight, which this API never approves; with `SameSite=Lax` that's the standard defence, so Spring's CSRF tokens stay off.
+- **API clients** still use `Authorization: Bearer` (it wins over the cookie), and the token stays in the login response for them.
+- **Logout** is `POST /api/auth/logout` (scripts can't delete an httpOnly cookie). A 401 caused by an expired or revoked cookie also deletes it, so the browser recovers on its own; auth endpoints ignore the cookie so logging in always works.
+- The old `localStorage` token is removed on first load.
+
 ---
 
 ## Not built yet
@@ -476,14 +512,12 @@ India has no public events API (BookMyShow and District have none), so the catal
 | Python ML job writing `recs:{userId}` | §12, Phase 2 | **Out of scope by choice.** The content-based score is the feed (D22, D51). The serving contract (D24) remains if it's ever wanted. |
 | Payments (F4) | §10 | **Out of scope by choice** (D47, D51). |
 | Cognito, Terraform, ECS/ECR deploy, CloudWatch, Glue/Athena | §7, §14, §16 | **Out of scope by choice:** no paid AWS. Local equivalents: JWT, docker-compose, SeaweedFS + DuckDB. A free-tier host (Render, Fly.io, Neon, Upstash) is the deploy path. |
-| Transactional outbox | D9 | Upgrade from at-most-once publishing. |
 | OR-Tools VRPTW, return-to-hotel leg | §11, D52 | The heuristic scheduler covers time windows and lunch; an exact solver and the evening leg back are refinements. |
 | Notify savers when an event is edited or removed | D54 | Today a removed event silently disappears from their plans. It would be a Kafka message from the catalog. |
 | Moderation for user-listed events | D54 | Per-user caps exist; a report button or admin review queue doesn't. |
 | Live fare and hotel-rate feeds | D48, D49 | Paid partner APIs (rail/bus aggregators, airline GDS, hotel channel managers). The service seams are in place. |
-| Rate limiting on public endpoints (auth, itinerary preview) | §14 | Can be done in-app (Bucket4j + Redis) without a gateway. Per-email throttles exist for codes, but not per-IP limits. |
-| Encrypting the code inside `emails` messages | D38 | Mitigated today by 1-hour topic retention and 10-minute single-use codes. |
-| httpOnly-cookie sessions instead of `localStorage` JWT | D32 | Production hardening against XSS token theft. |
+| Per-account lockout and CAPTCHA | D58 | Per-IP limits exist; a distributed attack from many IPs on one account isn't throttled per account yet. |
+| Outbox via CDC (Debezium) | D56 | Replaces polling with the Postgres WAL; heavier infrastructure. |
 | CI workflow, Maven wrapper | D29 | No `.github/workflows` file exists yet. |
 
 ---
@@ -538,3 +572,4 @@ India has no public events API (BookMyShow and District have none), so the catal
   - `V5` against V1–V4 data with real bookings: two confirmed bookings of one event became one save, the cancelled one was skipped, and `bookings` was dropped
   - new backend on an isolated stack (separate Postgres, Redis and Kafka containers, so the running dev app and its consumer groups were untouched) plus the built frontend in headless Chromium: sign-up, save an event (card shows "Saved", inbox note with nearby picks), list an event in Udaipur, a 2-day Bengaluru plan, My trips → open a saved plan, forgot password → new password, and a 3-day Jaipur plan at phone width (no horizontal scroll). No console errors.
   - The Bengaluru plan that used to wait for Toit (D52) now has Cubbon Park and Lalbagh on day 1 with lunch at MTR 0.5 km away, and Toit at 12:10 on day 2 with no waiting.
+- 2026-10-06: hardening (D56–D59): outbox, encrypted codes, rate limits, cookie sessions. `mvn verify` gives 73 unit + 17 end-to-end tests, all passing, with `V6` applied. Browser check on an isolated stack: an old localStorage token is removed; the session cookie is httpOnly, SameSite=Lax, Path=/api and invisible to `document.cookie`; the session survives a reload; saving works (cookie + CSRF header); logout deletes the cookie; logging back in works. Redis held the rate-limit buckets, and the outbox held 2 rows (the save and its activity), both published.

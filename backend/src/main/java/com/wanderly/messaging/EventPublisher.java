@@ -7,13 +7,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Thin JSON-over-Kafka publisher. Sends are asynchronous; failures are logged rather than
- * surfaced to the user because every caller is on a path where the user should not wait on
- * Kafka. (A transactional outbox is the upgrade path if at-least-once publishing is required.)
+ * Thin JSON-over-Kafka publisher, fire-and-forget: sends are asynchronous and failures are only
+ * logged. Used where losing a message is acceptable (searches and views) or where the source of
+ * truth isn't Postgres (Redis codes, self-healing reminders). Messages that describe a database change
+ * go through the transactional outbox instead ({@link com.wanderly.messaging.outbox.Outbox}, D56).
  */
 @Component
 public class EventPublisher {
@@ -43,8 +43,7 @@ public class EventPublisher {
     }
 
     public void activity(UUID userId, String eventType, String itemType, String itemId, String category, String city) {
-        ActivityEvent event = new ActivityEvent(UUID.randomUUID().toString(), eventType, Instant.now(),
-                userId, itemType, itemId, category, city);
-        publish(Topics.USER_ACTIVITY, userId == null ? null : userId.toString(), event);
+        publish(Topics.USER_ACTIVITY, userId == null ? null : userId.toString(),
+                ActivityEvent.of(userId, eventType, itemType, itemId, category, city));
     }
 }

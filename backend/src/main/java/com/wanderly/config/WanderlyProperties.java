@@ -7,7 +7,8 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "wanderly")
 public record WanderlyProperties(Security security, Kafka kafka, Places places) {
 
-    public record Security(String jwtSecret, Duration tokenTtl, String otpSecret) {
+    /** {@code cookieSecure}: mark the session cookie Secure (HTTPS only). Off for http://localhost. */
+    public record Security(String jwtSecret, Duration tokenTtl, String otpSecret, boolean cookieSecure) {
     }
 
     public record Kafka(int partitions) {

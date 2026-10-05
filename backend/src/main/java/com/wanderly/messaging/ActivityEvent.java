@@ -23,4 +23,8 @@ public record ActivityEvent(
     public static final String EVENT_SAVED = "event.saved";
     public static final String TRAVEL_SEARCHED = "travel.searched";
     public static final String HOTELS_SEARCHED = "hotels.searched";
+
+    public static ActivityEvent of(UUID userId, String eventType, String itemType, String itemId, String category, String city) {
+        return new ActivityEvent(UUID.randomUUID().toString(), eventType, Instant.now(), userId, itemType, itemId, category, city);
+    }
 }

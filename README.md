@@ -60,7 +60,7 @@ OSM_CONTACT=you@example.com python3 tools/fetch_osm_places.py   # then restart t
 Optional: set `OPENTRIPMAP_API_KEY` to use OpenTripMap as the live source instead.
 
 For developers:
-- **Swagger UI** (http://localhost:8080/swagger-ui.html) is an interactive page for every endpoint. To get a token: `POST /api/auth/register`, find the 6-digit code in Mailpit, `POST /api/auth/verify` with it, copy the `accessToken`, click **Authorize** and paste it in.
+- **Swagger UI** (http://localhost:8080/swagger-ui.html) is an interactive page for every endpoint. (The web app uses an httpOnly session cookie; API clients use the Bearer token instead.) To get a token: `POST /api/auth/register`, find the 6-digit code in Mailpit, `POST /api/auth/verify` with it, copy the `accessToken`, click **Authorize** and paste it in.
 - [docs/api.http](docs/api.http) has the same requests for VS Code REST Client or IntelliJ.
 - **Mailpit** (http://localhost:8025) is a local inbox for every email the app sends: sign-up and password-reset codes, and reminders.
 - **Kafka UI** (http://localhost:8081) shows the `saved-events`, `user-activity` and `emails` topics filling up as you use the app.
@@ -90,18 +90,21 @@ To run everything, including the backend, in containers, use `docker compose --p
 | `LAKE_ENDPOINT` | `http://localhost:8333` (SeaweedFS) | S3 endpoint for the analytics lake; **empty = real AWS S3** |
 | `LAKE_BUCKET` / `LAKE_REGION` / `LAKE_ACCESS_KEY` / `LAKE_SECRET_KEY` | `wanderly-lake` / `us-east-1` / `dev` / `dev` | Lake location and local credentials |
 | `ANALYTICS_ENABLED` | `true` | `false` = don't run the lake sink |
+| `COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. **Set `true` anywhere served over HTTPS.** |
+| `RATE_LIMIT_ENABLED` | `true` | Per-IP limits on login, sign-up, code entry and the planner (limits under `wanderly.rate-limit`) |
+| `FORWARD_HEADERS_STRATEGY` | `native` | Trust `X-Forwarded-For` from internal proxies only, so rate limits see the real client IP |
 | `ADMINS` | — | Comma-separated admin emails: the analytics dashboard, and editing or removing any listed event. Empty = no admins, and analytics is open to any logged-in user (dev only). `ANALYTICS_ADMINS` still works as a fallback. |
 
 ## Tests
 
 ```bash
 cd backend
-mvn test      # 68 unit tests: planner + day scheduler, reminders, ranking, places mapping, city search, travel, hotels, DuckDB analytics SQL (no Docker)
-mvn verify    # + 14 end-to-end tests (PlannerFlowIT) on real Postgres, Kafka and Redis via Testcontainers (needs Docker)
+mvn test      # 73 unit tests: code cipher, rate-limit rules, planner + day scheduler, reminders, ranking, places mapping, city search, travel, hotels, DuckDB analytics SQL (no Docker)
+mvn verify    # + 17 end-to-end tests (PlannerFlowIT) on real Postgres, Kafka and Redis via Testcontainers (needs Docker)
 LIVE_OSM=true mvn test -Dtest=OsmHoursClientLiveTest   # optional: calls the real Overpass API
 ```
 
-The end-to-end tests cover the save fan-out (idempotent, inbox-only), listing and editing events (owner-only), reminders for saved events and trips (sent once across reruns), password reset (old sessions signed out), consumer idempotency, itineraries, and every verification rule: single-use codes, the 5-attempt limit, concurrent submissions, no account enumeration, and an idempotent email worker. Testcontainers is pinned to 1.21.4 for Docker Engine 29 compatibility.
+The end-to-end tests cover per-IP rate limiting, the httpOnly cookie session and its CSRF guard, the transactional outbox (committed messages relayed, rolled-back ones never), the save fan-out (idempotent, inbox-only), listing and editing events (owner-only), reminders for saved events and trips (sent once across reruns), password reset (old sessions signed out), consumer idempotency, itineraries, and every verification rule: single-use codes, the 5-attempt limit, concurrent submissions, no account enumeration, and an idempotent email worker. Testcontainers is pinned to 1.21.4 for Docker Engine 29 compatibility.
 
 There's no CI workflow in the repo yet; run `mvn verify` before pushing.
 
@@ -119,10 +122,11 @@ backend/src/main/java/com/wanderly/
   travel/          F8 airports (OurAirports), OSRM road routes, travel planner (parallel fan-out)
   stay/            F9 hotels from Photon, tiering and indicative pricing
   analytics/       F12 lake sink (Kafka batch → S3), DuckDB queries, dashboard API
-  messaging/       topics + event payloads + publisher
+  messaging/       topics, event payloads, publisher, code cipher (AES-GCM); outbox/ = transactional outbox + relay
+  ratelimit/       per-IP token buckets in Redis (Lua) + servlet filter
   config/          security, Kafka topics and dead-letter handling, typed properties
 backend/src/main/resources/
-  db/migration/    Flyway V1 schema, V2 seed catalog, V3/V4 email verification, V5 bookings → saved events
+  db/migration/    Flyway V1 schema, V2 seed catalog, V3/V4 email verification, V5 bookings → saved events, V6 outbox
   places/          curated places dataset; osm-cities.json (bundled OpenStreetMap data)
   cities/          85 Indian destinations (geocoded)
   travel/          116 Indian airports (OurAirports, public domain)
@@ -130,7 +134,7 @@ frontend/src/
   pages/           Explore, Plan a trip, Discover, My trips, List an event, Inbox, Profile
   components/      cards, event dialog, login / verify-code / reset-password dialog, city search, nearby panel, toasts
   saved.jsx        which events the user saved, shared across pages
-  api.js           REST client (JWT in localStorage)
+  api.js           REST client (session in an httpOnly cookie, CSRF header on every call)
 infra/seaweedfs/   local S3 credentials for the lake
 docs/api.http      request walkthrough
 tools/fetch_osm_places.py  builds the bundled OpenStreetMap city data (Overpass + Wikipedia page views)

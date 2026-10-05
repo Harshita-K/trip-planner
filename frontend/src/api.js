@@ -1,17 +1,13 @@
 // Thin client for the Wanderly REST API. All paths are relative; Vite proxies /api to :8080.
 
-const TOKEN_KEY = 'wanderly.token'
+// The session is an httpOnly cookie set by the API (D59): scripts never see the token, so XSS can't
+// steal it. Remove the token older versions kept in localStorage.
+try { localStorage.removeItem('wanderly.token') } catch { /* ignore */ }
 
-export const tokenStore = {
-  get() {
-    try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
-  },
-  set(token) {
-    try { localStorage.setItem(TOKEN_KEY, token) } catch { /* private mode: session-only */ }
-  },
-  clear() {
-    try { localStorage.removeItem(TOKEN_KEY) } catch { /* ignore */ }
-  },
+/** Whether we believe there's a session, so a 401 means "expired" rather than "never logged in". */
+let sessionActive = false
+export function setSessionActive(active) {
+  sessionActive = active
 }
 
 export class ApiError extends Error {
@@ -40,14 +36,13 @@ function friendlyMessage(status, data) {
 }
 
 async function request(path, { method = 'GET', body, signal } = {}) {
-  const headers = {}
+  // X-Requested-With is the CSRF guard: the API ignores the session cookie on writes without it.
+  const headers = { 'X-Requested-With': 'wanderly' }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
-  const token = tokenStore.get()
-  if (token) headers.Authorization = `Bearer ${token}`
 
   let res
   try {
-    res = await fetch(path, { method, headers, signal, body: body === undefined ? undefined : JSON.stringify(body) })
+    res = await fetch(path, { method, headers, signal, credentials: 'same-origin', body: body === undefined ? undefined : JSON.stringify(body) })
   } catch (e) {
     if (e.name === 'AbortError') throw e
     throw new ApiError(0, friendlyMessage(0))
@@ -58,7 +53,7 @@ async function request(path, { method = 'GET', body, signal } = {}) {
   if (text) {
     try { data = JSON.parse(text) } catch { data = null }
   }
-  if (res.status === 401 && token) {
+  if (res.status === 401 && sessionActive && !path.startsWith('/api/auth/')) {
     onUnauthorized()
     throw new ApiError(401, 'Your session has expired. Please log in again.')
   }
@@ -80,6 +75,7 @@ function qs(params) {
 export const Api = {
   register: (body) => request('/api/auth/register', { method: 'POST', body }),
   login: (body) => request('/api/auth/login', { method: 'POST', body }),
+  logout: () => request('/api/auth/logout', { method: 'POST' }),
   verifyEmail: (body) => request('/api/auth/verify', { method: 'POST', body }),
   resendCode: (email) => request('/api/auth/resend-code', { method: 'POST', body: { email } }),
   forgotPassword: (email) => request('/api/auth/forgot-password', { method: 'POST', body: { email } }),

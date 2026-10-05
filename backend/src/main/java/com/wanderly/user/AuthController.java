@@ -1,5 +1,6 @@
 package com.wanderly.user;
 
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,9 +14,20 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final SessionCookie sessionCookie;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, SessionCookie sessionCookie) {
         this.authService = authService;
+        this.sessionCookie = sessionCookie;
+    }
+
+    /**
+     * Every call that logs someone in also sets the httpOnly session cookie (D59). The token stays in the
+     * body for API clients (Swagger, curl); the web app ignores it and never stores it.
+     */
+    private AuthDtos.TokenResponse withCookie(AuthDtos.TokenResponse token, HttpServletResponse response) {
+        sessionCookie.set(response, token.accessToken());
+        return token;
     }
 
     /** Step 1: create an unverified account and queue a 6-digit code email. 202: the email is sent asynchronously. */
@@ -27,8 +39,8 @@ public class AuthController {
 
     /** Step 2: prove ownership of the email; returns the access token. */
     @PostMapping("/verify")
-    public AuthDtos.TokenResponse verify(@Valid @RequestBody AuthDtos.VerifyRequest request) {
-        return authService.verify(request);
+    public AuthDtos.TokenResponse verify(@Valid @RequestBody AuthDtos.VerifyRequest request, HttpServletResponse response) {
+        return withCookie(authService.verify(request), response);
     }
 
     /** Always 202, whether or not the email has an account, so it can't be used to probe for users. */
@@ -47,12 +59,20 @@ public class AuthController {
 
     /** Code + new password; signs out other sessions and returns a fresh token. */
     @PostMapping("/reset-password")
-    public AuthDtos.TokenResponse resetPassword(@Valid @RequestBody AuthDtos.ResetPasswordRequest request) {
-        return authService.resetPassword(request);
+    public AuthDtos.TokenResponse resetPassword(@Valid @RequestBody AuthDtos.ResetPasswordRequest request,
+                                                HttpServletResponse response) {
+        return withCookie(authService.resetPassword(request), response);
     }
 
     @PostMapping("/login")
-    public AuthDtos.TokenResponse login(@Valid @RequestBody AuthDtos.LoginRequest request) {
-        return authService.login(request);
+    public AuthDtos.TokenResponse login(@Valid @RequestBody AuthDtos.LoginRequest request, HttpServletResponse response) {
+        return withCookie(authService.login(request), response);
+    }
+
+    /** Deletes the session cookie (scripts can't: it's httpOnly). The token itself expires on its own. */
+    @PostMapping("/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logout(HttpServletResponse response) {
+        sessionCookie.clear(response);
     }
 }

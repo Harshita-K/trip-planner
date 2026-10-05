@@ -8,7 +8,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:8080',
+      // xfwd: pass the browser's address on as X-Forwarded-For, so per-IP rate limits work in dev (D58).
+      '/api': { target: 'http://localhost:8080', xfwd: true },
     },
   },
 })

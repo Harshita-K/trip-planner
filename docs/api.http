@@ -7,7 +7,9 @@ Content-Type: application/json
 
 { "email": "demo@example.com", "password": "correct-horse-battery", "name": "Demo" }
 
-### 2. Verify: paste the code from the email. Returns accessToken. Codes are single use and expire in 10 min.
+### 2. Verify: paste the code from the email. Returns accessToken (for API clients; browsers get an httpOnly
+### session cookie from the same response). Codes are single use and expire in 10 min.
+### Auth endpoints are rate limited per IP: too many attempts return 429 with Retry-After.
 # @name verify
 POST {{base}}/api/auth/verify
 Content-Type: application/json
@@ -28,6 +30,9 @@ POST {{base}}/api/auth/login
 Content-Type: application/json
 
 { "email": "demo@example.com", "password": "correct-horse-battery" }
+
+### Log out (browser session): deletes the httpOnly session cookie
+POST {{base}}/api/auth/logout
 
 ### Forgot password: always 202; verified accounts get a 6-digit reset code by email
 POST {{base}}/api/auth/forgot-password

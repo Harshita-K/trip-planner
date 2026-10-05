@@ -1,9 +1,12 @@
 package com.wanderly;
 
+import com.wanderly.messaging.CodeCipher;
 import com.wanderly.messaging.EmailJob;
 import com.wanderly.messaging.EventPublisher;
 import com.wanderly.messaging.NotificationRequest;
 import com.wanderly.messaging.Topics;
+import com.wanderly.messaging.outbox.Outbox;
+import com.wanderly.messaging.outbox.OutboxRepository;
 import com.wanderly.notification.NotificationRepository;
 import com.wanderly.notification.NotificationSender;
 import com.wanderly.notification.ReminderScheduler;
@@ -22,6 +25,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -29,6 +35,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -58,7 +65,9 @@ import static org.awaitility.Awaitility.await;
         "wanderly.places.live=false", "wanderly.analytics.enabled=false", "wanderly.travel.osrm-url=",
         // No live geocoding in tests: venue lookups fail fast and fall back to the city centre.
         "wanderly.places.osm.photon-url=http://127.0.0.1:9",
-        "wanderly.admins=admin@example.com"})
+        "wanderly.admins=admin@example.com",
+        // Every test shares 127.0.0.1 and signs up many users: loosen these two; the rate-limit test uses its own IPs.
+        "wanderly.rate-limit.signup.capacity=1000", "wanderly.rate-limit.code.capacity=1000"})
 @Testcontainers
 class PlannerFlowIT {
 
@@ -129,6 +138,18 @@ class PlannerFlowIT {
 
     @Autowired
     ReminderScheduler reminders;
+
+    @Autowired
+    CodeCipher cipher;
+
+    @Autowired
+    Outbox outbox;
+
+    @Autowired
+    OutboxRepository outboxMessages;
+
+    @Autowired
+    PlatformTransactionManager txManager;
 
     @Test
     void savingAnEventFansOutToTheInboxAndIsIdempotent() {
@@ -285,6 +306,85 @@ class PlannerFlowIT {
     }
 
     @Test
+    void loginIsRateLimitedPerClientIp() {
+        String ip = "203.0.113." + (1 + new java.util.Random().nextInt(250));
+        Map<String, Object> wrong = Map.of("email", "nobody-" + UUID.randomUUID() + "@example.com", "password", "wrong-password");
+
+        for (int i = 0; i < 10; i++) {
+            assertThat(loginFrom(ip, wrong).statusCode()).isEqualTo(401);
+        }
+        java.net.http.HttpResponse<String> limited = loginFrom(ip, wrong);
+        assertThat(limited.statusCode()).isEqualTo(429);
+        assertThat(limited.headers().firstValue("Retry-After")).hasValueSatisfying(s -> assertThat(Integer.parseInt(s)).isPositive());
+        assertThat(limited.body()).contains("RATE_LIMITED");
+
+        // Another client is unaffected.
+        assertThat(loginFrom("198.51.100." + (1 + new java.util.Random().nextInt(250)), wrong).statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void browserSessionIsAnHttpOnlyCookieWithCsrfProtection() {
+        String email = emailOf(register());
+        ResponseEntity<Map<String, Object>> loggedIn = login(email, "correct-horse-battery");
+        String setCookie = loggedIn.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        assertThat(setCookie).startsWith("wanderly_session=").contains("HttpOnly", "SameSite=Lax", "Path=/api");
+        String cookie = setCookie.substring(0, setCookie.indexOf(';'));
+
+        // Reads work with the cookie alone.
+        HttpHeaders cookieOnly = new HttpHeaders();
+        cookieOnly.add(HttpHeaders.COOKIE, cookie);
+        assertThat(rest.exchange("/api/users/me", HttpMethod.GET, new HttpEntity<>(cookieOnly), MAP).getBody())
+                .containsEntry("email", email);
+
+        // Writes need the CSRF header too: a forged cross-site form can't add it.
+        Map<String, Object> prefs = Map.of("interests", List.of("music"), "travelPace", "relaxed");
+        assertThat(rest.exchange("/api/users/me/preferences", HttpMethod.PUT, new HttpEntity<>(prefs, cookieOnly), MAP)
+                .getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        HttpHeaders withMarker = new HttpHeaders();
+        withMarker.addAll(cookieOnly);
+        withMarker.add("X-Requested-With", "wanderly");
+        assertThat(rest.exchange("/api/users/me/preferences", HttpMethod.PUT, new HttpEntity<>(prefs, withMarker), MAP)
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        // Logout deletes the cookie; a broken cookie is deleted by the 401 that rejects it.
+        String cleared = rest.exchange("/api/auth/logout", HttpMethod.POST, new HttpEntity<>(withMarker), MAP)
+                .getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        assertThat(cleared).startsWith("wanderly_session=;").contains("Max-Age=0");
+        HttpHeaders stale = new HttpHeaders();
+        stale.add(HttpHeaders.COOKIE, "wanderly_session=not-a-token");
+        ResponseEntity<Map<String, Object>> rejected = rest.exchange("/api/users/me", HttpMethod.GET, new HttpEntity<>(stale), MAP);
+        assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(rejected.getHeaders().getFirst(HttpHeaders.SET_COOKIE)).contains("Max-Age=0");
+    }
+
+    @Test
+    void outboxRelaysCommittedMessagesAndNeverRolledBackOnes() {
+        String token = register();
+        UUID userId = UUID.fromString(call(HttpMethod.GET, "/api/users/me", token, null, MAP).getBody().get("id").toString());
+        String committed = "outbox-ok-" + UUID.randomUUID();
+        String rolledBack = "outbox-rb-" + UUID.randomUUID();
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+
+        tx.executeWithoutResult(s -> outbox.enqueue(Topics.NOTIFICATIONS, userId.toString(),
+                new NotificationRequest(committed, "test", Instant.now(), userId, "Committed", "Sent")));
+        tx.executeWithoutResult(s -> {
+            outbox.enqueue(Topics.NOTIFICATIONS, userId.toString(),
+                    new NotificationRequest(rolledBack, "test", Instant.now(), userId, "Rolled back", "Never sent"));
+            s.setRollbackOnly();
+        });
+
+        await().atMost(Duration.ofSeconds(30)).until(() -> notifications.existsBySourceEventId(committed));
+        assertThat(outboxMessages.findAll()).filteredOn(m -> m.getPayload().contains(committed))
+                .singleElement().satisfies(m -> assertThat(m.getPublishedAt()).isNotNull());
+        assertThat(outboxMessages.findAll()).noneMatch(m -> m.getPayload().contains(rolledBack));
+        assertThat(notifications.existsBySourceEventId(rolledBack)).isFalse();
+
+        // Enqueueing outside a transaction is a bug, not a silent best-effort send.
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> outbox.enqueue(Topics.NOTIFICATIONS, "k", Map.of()))
+                .isInstanceOf(IllegalTransactionStateException.class);
+    }
+
+    @Test
     void notificationConsumerIsIdempotent() {
         String token = register();
         UUID userId = UUID.fromString(call(HttpMethod.GET, "/api/users/me", token, null, MAP).getBody().get("id").toString());
@@ -417,8 +517,8 @@ class PlannerFlowIT {
         String email = "idem-" + UUID.randomUUID() + "@example.com";
         String jobId = UUID.randomUUID().toString();
         assertThat(otpStore.issue(email, "424242", jobId)).isTrue();
-        EmailJob job = EmailJob.verificationCode(jobId, email, "Idem", "424242");
-        EmailJob stale = EmailJob.verificationCode(UUID.randomUUID().toString(), email, "Idem", "999999");
+        EmailJob job = EmailJob.verificationCode(cipher, jobId, email, "Idem", "424242");
+        EmailJob stale = EmailJob.verificationCode(cipher, UUID.randomUUID().toString(), email, "Idem", "999999");
         EmailJob marker = EmailJob.accountExists(email, "Idem");
 
         // Simulate redelivery: same job twice, plus a job for a code that isn't current.
@@ -501,6 +601,23 @@ class PlannerFlowIT {
 
     private ResponseEntity<Map<String, Object>> login(String email, String password) {
         return call(HttpMethod.POST, "/api/auth/login", null, Map.of("email", email, "password", password), MAP);
+    }
+
+    /**
+     * A plain JDK client on purpose: TestRestTemplate's Apache client honours Retry-After and would
+     * quietly wait out the 429 and retry.
+     */
+    private java.net.http.HttpResponse<String> loginFrom(String ip, Map<String, Object> body) {
+        try {
+            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder(URI.create(rest.getRootUri() + "/api/auth/login"))
+                    .header("Content-Type", "application/json")
+                    .header("X-Forwarded-For", ip)   // trusted: the test client connects from 127.0.0.1, an internal proxy
+                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body)))
+                    .build();
+            return java.net.http.HttpClient.newHttpClient().send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private String emailOf(String token) {

@@ -2,6 +2,7 @@ package com.wanderly.notification;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wanderly.messaging.CodeCipher;
 import com.wanderly.messaging.EmailJob;
 import com.wanderly.messaging.Topics;
 import com.wanderly.user.OtpStore;
@@ -58,12 +59,15 @@ public class EmailWorker {
     private final StringRedisTemplate redis;
     private final OtpStore otps;
     private final NotificationSender sender;
+    private final CodeCipher cipher;
 
-    public EmailWorker(ObjectMapper mapper, StringRedisTemplate redis, OtpStore otps, NotificationSender sender) {
+    public EmailWorker(ObjectMapper mapper, StringRedisTemplate redis, OtpStore otps, NotificationSender sender,
+                       CodeCipher cipher) {
         this.mapper = mapper;
         this.redis = redis;
         this.otps = otps;
         this.sender = sender;
+        this.cipher = cipher;
     }
 
     @KafkaListener(topics = Topics.EMAILS, groupId = "email-worker")
@@ -76,6 +80,9 @@ public class EmailWorker {
             return;
         }
 
+        // Codes arrive encrypted (D57). A bad ciphertext throws IllegalArgumentException: not retried, dead-lettered.
+        String code = purpose == null ? null : cipher.decrypt(job.encryptedCode(), job.jobId(), job.to());
+
         String stateKey = "email:job:" + job.jobId();
         String lease = "sending:" + UUID.randomUUID();
         if (!Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(stateKey, lease, LEASE))) {
@@ -87,7 +94,7 @@ public class EmailWorker {
         }
 
         try {
-            sender.send(job.to(), subject(job), body(job), "<" + job.jobId() + "@wanderly.local>");
+            sender.send(job.to(), subject(job, code), body(job, code), "<" + job.jobId() + "@wanderly.local>");
         } catch (RuntimeException e) {
             redis.execute(RELEASE, List.of(stateKey), lease);
             throw e;   // retried by the Kafka error handler, then dead-lettered
@@ -95,17 +102,17 @@ public class EmailWorker {
         redis.opsForValue().set(stateKey, SENT, DONE_TTL);
     }
 
-    private static String subject(EmailJob job) {
+    private static String subject(EmailJob job, String code) {
         if (job.isVerificationCode()) {
-            return job.code() + " is your Wanderly verification code";
+            return code + " is your Wanderly verification code";
         }
         if (job.isPasswordResetCode()) {
-            return job.code() + " is your Wanderly password reset code";
+            return code + " is your Wanderly password reset code";
         }
         return "You already have a Wanderly account";
     }
 
-    private static String body(EmailJob job) {
+    private static String body(EmailJob job, String code) {
         if (job.isVerificationCode()) {
             return """
                     Hi %s,
@@ -118,7 +125,7 @@ public class EmailWorker {
                     and can only be used once.
 
                     If you didn't create a Wanderly account, you can ignore this email.
-                    """.formatted(job.name(), job.code());
+                    """.formatted(job.name(), code);
         }
         if (job.isPasswordResetCode()) {
             return """
@@ -132,7 +139,7 @@ public class EmailWorker {
                     in 10 minutes and can only be used once. Resetting signs you out everywhere else.
 
                     If you didn't ask for this, you can ignore this email. Your password is unchanged.
-                    """.formatted(job.name(), job.code());
+                    """.formatted(job.name(), code);
         }
         return """
                 Hi %s,

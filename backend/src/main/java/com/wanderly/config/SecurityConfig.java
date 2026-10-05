@@ -1,6 +1,7 @@
 package com.wanderly.config;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import com.wanderly.user.SessionCookie;
 import com.wanderly.user.TokenRevocation;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,6 +17,9 @@ import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -33,8 +37,11 @@ import java.nio.charset.StandardCharsets;
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, SessionCookie sessionCookie) throws Exception {
+        AuthenticationEntryPoint entryPoint = clearingStaleCookie(sessionCookie);
         http
+                // Spring's CSRF tokens are off: header tokens aren't sent automatically, and the session
+                // cookie only counts on writes that carry X-Requested-With (SessionTokenResolver, D59).
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
@@ -46,8 +53,27 @@ public class SecurityConfig {
                         // The planner is a "try before you sign up" feature; saving still requires login.
                         .requestMatchers(HttpMethod.POST, "/api/itineraries/preview").permitAll()
                         .anyRequest().authenticated())
-                .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()));
+                .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint))
+                .oauth2ResourceServer(oauth -> oauth
+                        .bearerTokenResolver(new SessionTokenResolver())
+                        .authenticationEntryPoint(entryPoint)
+                        .jwt(Customizer.withDefaults()));
         return http.build();
+    }
+
+    /**
+     * The usual 401, plus: if the session cookie carried an expired or revoked token, delete it, so the
+     * browser recovers on its own instead of failing every request until someone logs out.
+     */
+    private static AuthenticationEntryPoint clearingStaleCookie(SessionCookie sessionCookie) {
+        BearerTokenAuthenticationEntryPoint bearer = new BearerTokenAuthenticationEntryPoint();
+        return (request, response, ex) -> {
+            if (ex instanceof OAuth2AuthenticationException && request.getHeader("Authorization") == null
+                    && SessionCookie.read(request) != null) {
+                sessionCookie.clear(response);
+            }
+            bearer.commence(request, response, ex);
+        };
     }
 
     @Bean

@@ -3,7 +3,8 @@ package com.wanderly.itinerary;
 import com.wanderly.common.ApiException;
 import com.wanderly.common.GeoPoint;
 import com.wanderly.messaging.ActivityEvent;
-import com.wanderly.messaging.EventPublisher;
+import com.wanderly.messaging.Topics;
+import com.wanderly.messaging.outbox.Outbox;
 import com.wanderly.places.Place;
 import com.wanderly.places.PlacesService;
 import com.wanderly.user.Preferences;
@@ -36,15 +37,15 @@ public class ItineraryService {
     private final PreferencesService preferences;
     private final ItineraryPlanner planner;
     private final ItineraryRepository repository;
-    private final EventPublisher publisher;
+    private final Outbox outbox;
 
     public ItineraryService(PlacesService places, PreferencesService preferences, ItineraryPlanner planner,
-                            ItineraryRepository repository, EventPublisher publisher) {
+                            ItineraryRepository repository, Outbox outbox) {
         this.places = places;
         this.preferences = preferences;
         this.planner = planner;
         this.repository = repository;
-        this.publisher = publisher;
+        this.outbox = outbox;
     }
 
     /** Generate and save (logged-in users). */
@@ -54,8 +55,9 @@ public class ItineraryService {
         Itinerary saved = repository.save(new Itinerary(userId, request.destination().trim(),
                 request.startDate(), request.endDate(), plan));
 
-        publisher.activity(userId, ActivityEvent.ITINERARY_GENERATED, "itinerary", saved.getId().toString(),
-                dominantCategory(plan), request.destination().trim());
+        // Same transaction as the save (D56): a plan that exists is always counted, and vice versa.
+        outbox.enqueue(Topics.USER_ACTIVITY, userId.toString(), ActivityEvent.of(userId, ActivityEvent.ITINERARY_GENERATED,
+                "itinerary", saved.getId().toString(), dominantCategory(plan), request.destination().trim()));
         return saved;
     }
 

@@ -1,6 +1,7 @@
 package com.wanderly.user;
 
 import com.wanderly.common.ApiException;
+import com.wanderly.messaging.CodeCipher;
 import com.wanderly.messaging.EmailJob;
 import com.wanderly.messaging.EventPublisher;
 import com.wanderly.messaging.Topics;
@@ -26,11 +27,13 @@ public class EmailVerificationService {
     private final OtpStore otps;
     private final EventPublisher publisher;
     private final UserRepository users;
+    private final CodeCipher cipher;
 
-    public EmailVerificationService(OtpStore otps, EventPublisher publisher, UserRepository users) {
+    public EmailVerificationService(OtpStore otps, EventPublisher publisher, UserRepository users, CodeCipher cipher) {
         this.otps = otps;
         this.publisher = publisher;
         this.users = users;
+        this.cipher = cipher;
     }
 
     /**
@@ -42,7 +45,7 @@ public class EmailVerificationService {
         String otpId = UUID.randomUUID().toString();                   // also the email job's idempotency key
         if (otps.issue(user.getEmail(), code, otpId)) {
             publisher.publish(Topics.EMAILS, user.getEmail(),
-                    EmailJob.verificationCode(otpId, user.getEmail(), user.getName(), code));
+                    EmailJob.verificationCode(cipher, otpId, user.getEmail(), user.getName(), code));
         }
     }
 

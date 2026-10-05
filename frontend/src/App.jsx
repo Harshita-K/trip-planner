@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Api } from './api.js'
 import { useAuth } from './auth.jsx'
 import AuthModal from './components/AuthModal.jsx'
+import { Spinner } from './components/ui.jsx'
 import Analytics from './pages/Analytics.jsx'
 import Discover from './pages/Discover.jsx'
 import Explore from './pages/Explore.jsx'
@@ -66,7 +67,7 @@ function useInbox(isLoggedIn) {
 }
 
 export default function App() {
-  const { isLoggedIn, user, openAuth, logout } = useAuth()
+  const { isLoggedIn, user, ready, openAuth, logout } = useAuth()
   const route = useRoute()
   const inbox = useInbox(isLoggedIn)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -107,7 +108,7 @@ export default function App() {
             ))}
           </nav>
           <div className="topbar-actions">
-            {isLoggedIn ? (
+            {!ready ? null : isLoggedIn ? (
               <>
                 <a href="#/inbox" className={`icon-btn ${route.path === '/inbox' ? 'active' : ''}`} aria-label={`Inbox, ${inbox.unread} unread`}>
                   <span aria-hidden="true">🔔</span>
@@ -143,7 +144,8 @@ export default function App() {
         </div>
       </header>
 
-      <main>{page}</main>
+      {/* Wait for the session check, so pages don't flash their logged-out state. */}
+      <main>{ready ? page : <div className="container page"><Spinner /></div>}</main>
 
       <footer className="footer">
         <div className="container">
